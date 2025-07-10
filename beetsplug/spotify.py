@@ -34,10 +34,10 @@ import unidecode
 from beets import ui
 from beets.autotag.hooks import AlbumInfo, TrackInfo
 from beets.dbcore import types
-from beets.library import DateType, Library
 from beets.plugins import BeetsPlugin, MetadataSourcePlugin, Response
 
 if TYPE_CHECKING:
+    from beets.library import Library
     from beetsplug._typing import JSONDict
 
 DEFAULT_WAITING_TIME = 5
@@ -64,7 +64,7 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
         "spotify_tempo": types.FLOAT,
         "spotify_time_signature": types.INTEGER,
         "spotify_valence": types.FLOAT,
-        "spotify_updated": DateType(),
+        "spotify_updated": types.DATE,
     }
 
     # Base URLs for the Spotify API
@@ -106,6 +106,7 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
                 "client_id": "4e414367a1d14c75a5c5129a627fcab8",
                 "client_secret": "f82bdc09b2254f1a8286815d02fd46dc",
                 "tokenfile": "spotify_token.json",
+                "search_query_ascii": False,
             }
         )
         self.config["client_id"].redact = True
@@ -388,9 +389,8 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
         track.medium_total = medium_total
         return track
 
-    @staticmethod
     def _construct_search_query(
-        filters: dict[str, str], keywords: str = ""
+        self, filters: dict[str, str], keywords: str = ""
     ) -> str:
         """Construct a query string with the specified filters and keywords to
         be provided to the Spotify Search API
@@ -407,7 +407,11 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
         query = " ".join([q for q in query_components if q])
         if not isinstance(query, str):
             query = query.decode("utf8")
-        return unidecode.unidecode(query)
+
+        if self.config["search_query_ascii"].get():
+            query = unidecode.unidecode(query)
+
+        return query
 
     def _search_api(
         self,
@@ -424,6 +428,7 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
         :param keywords: (Optional) Query keywords to use.
         """
         query = self._construct_search_query(keywords=keywords, filters=filters)
+
         self._log.debug(f"Searching {self.data_source} for '{query}'")
         try:
             response = self._handle_response(
@@ -448,7 +453,7 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
         def queries(lib, opts, args):
             success = self._parse_opts(opts)
             if success:
-                results = self._match_library_tracks(lib, ui.decargs(args))
+                results = self._match_library_tracks(lib, args)
                 self._output_match_results(results)
 
         spotify_cmd = ui.Subcommand(
@@ -486,7 +491,7 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
         )
 
         def func(lib, opts, args):
-            items = lib.items(ui.decargs(args))
+            items = lib.items(args)
             self._fetch_info(items, ui.should_write(), opts.force_refetch)
 
         sync_cmd.func = func
@@ -560,6 +565,7 @@ class SpotifyPlugin(MetadataSourcePlugin, BeetsPlugin):
                 query = self._construct_search_query(
                     keywords=keywords, filters=query_filters
                 )
+
                 failures.append(query)
                 continue
 
